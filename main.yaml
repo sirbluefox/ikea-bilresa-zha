@@ -21,7 +21,7 @@ blueprint:
     long = `move` (mode 0 = button 1, mode 1 = button 2).
   domain: automation
   # Replace with the link to this file in your GitHub repo:
-  source_url: https://github.com/sirbluefox/ikea-bilresa-zha/edit/main/main.yaml
+  source_url: https://github.com/sirbluefox/ikea-bilresa-zha/main/main.yaml
   homeassistant:
     min_version: 2024.10.0
   input:
