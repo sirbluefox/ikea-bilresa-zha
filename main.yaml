@@ -20,7 +20,7 @@ blueprint:
     it, and adjust the endpoint / command settings in "Remote setup".
   domain: automation
   # Replace with the raw URL of this file in your GitHub repo:
-  source_url: https://github.com/YOUR_USER/YOUR_REPO/blob/main/bilresa_zha_lights_scenes.yaml
+  source_url: https://github.com/sirbluefox/ikea-bilresa-zha/blob/main/main.yaml
   homeassistant:
     min_version: 2025.4.0
   input:
