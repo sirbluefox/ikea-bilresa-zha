@@ -7,57 +7,29 @@ blueprint:
     - **Single press**: toggles that button's light(s). When turning on, it uses
       your brightness / colour temperature / transition settings.
 
-    - **Double / triple press**: run any action you like (e.g. activate a scene).
+    - **Double press**: any action (e.g. activate a scene).
+
+    - **Long press**: any action, run once when you start holding.
 
 
-    Double and triple presses are counted by this blueprint: presses closer
-    together than the "multi-press window" are grouped. If a button has no
-    double/triple action, its single press reacts instantly.
+    The remote detects double presses itself, so single presses react
+    instantly and there's no delay to configure.
 
 
-    Buttons are told apart by Zigbee endpoint (usually 1 and 2). If a button
-    does nothing, open Developer Tools > Events, listen to `zha_event`, press
-    it, and adjust the endpoint / command settings in "Remote setup".
+    What the remote sends (ZHA): button 1 single = `on`, button 2 single = `off`,
+    double = scene `press` (256 = button 1, 257 = button 2),
+    long = `move` (mode 0 = button 1, mode 1 = button 2).
   domain: automation
-  # Replace with the raw URL of this file in your GitHub repo:
-  source_url: https://github.com/sirbluefox/ikea-bilresa-zha/blob/main/main.yaml
+  # Replace with the link to this file in your GitHub repo:
+  source_url: https://github.com/sirbluefox/ikea-bilresa-zha/edit/main/main.yaml
   homeassistant:
-    min_version: 2025.4.0
+    min_version: 2024.10.0
   input:
-    setup:
-      name: Remote setup
-      icon: mdi:remote
-      input:
-        remote:
-          name: Bilresa remote
-          selector:
-            device:
-              integration: zha
-        button_1_endpoint:
-          name: Button 1 endpoint ID
-          default: 1
-          selector:
-            number: {min: 1, max: 10, mode: box}
-        button_2_endpoint:
-          name: Button 2 endpoint ID
-          default: 2
-          selector:
-            number: {min: 1, max: 10, mode: box}
-        press_commands:
-          name: Short-press command(s) (optional)
-          description: >
-            Leave empty to count every command as a press. To ignore long
-            presses, enter the short-press command(s) seen in zha_event,
-            comma-separated (e.g. "toggle" or "on, off").
-          default: ""
-          selector:
-            text:
-        multi_press_window:
-          name: Multi-press window
-          description: Max time between presses to count as a double/triple press.
-          default: 400
-          selector:
-            number: {min: 150, max: 1500, step: 50, unit_of_measurement: ms}
+    remote:
+      name: Bilresa remote
+      selector:
+        device:
+          integration: zha
 
     button_1:
       name: Button 1
@@ -89,8 +61,8 @@ blueprint:
           default: []
           selector:
             action: {}
-        b1_triple:
-          name: Triple press action
+        b1_long:
+          name: Long press action
           default: []
           selector:
             action: {}
@@ -125,8 +97,8 @@ blueprint:
           default: []
           selector:
             action: {}
-        b2_triple:
-          name: Triple press action
+        b2_long:
+          name: Long press action
           default: []
           selector:
             action: {}
@@ -135,24 +107,14 @@ mode: single
 max_exceeded: silent
 
 variables:
-  ep1: !input button_1_endpoint
-  ep2: !input button_2_endpoint
-  press_commands: !input press_commands
-  window: !input multi_press_window
-  allowed: >
-    {{ press_commands.split(',') | map('trim') | reject('eq', '') | list }}
   b1_lights: !input b1_lights
   b1_brightness: !input b1_brightness
   b1_kelvin: !input b1_kelvin
   b1_transition: !input b1_transition
-  b1_double: !input b1_double
-  b1_triple: !input b1_triple
   b2_lights: !input b2_lights
   b2_brightness: !input b2_brightness
   b2_kelvin: !input b2_kelvin
   b2_transition: !input b2_transition
-  b2_double: !input b2_double
-  b2_triple: !input b2_triple
 
 triggers:
   - trigger: event
@@ -163,85 +125,80 @@ triggers:
 conditions:
   - condition: template
     value_template: >
-      {{ trigger.event.data.endpoint_id | int(0) in [ep1 | int, ep2 | int]
-         and (allowed | length == 0 or trigger.event.data.command in allowed) }}
+      {{ trigger.event.data.command in ['on', 'off', 'press', 'move'] }}
 
 actions:
   - variables:
-      btn: "{{ 1 if trigger.event.data.endpoint_id | int(0) == ep1 | int else 2 }}"
-      my_ep: "{{ ep1 | int if btn == 1 else ep2 | int }}"
-      lights: "{{ b1_lights if btn == 1 else b2_lights }}"
-      brightness: "{{ b1_brightness if btn == 1 else b2_brightness }}"
-      kelvin: "{{ (b1_kelvin if btn == 1 else b2_kelvin) | int }}"
-      transition: "{{ b1_transition if btn == 1 else b2_transition }}"
-      has_double: "{{ ((b1_double if btn == 1 else b2_double) | length) > 0 }}"
-      has_triple: "{{ ((b1_triple if btn == 1 else b2_triple) | length) > 0 }}"
-      max_clicks: "{{ 3 if has_triple else 2 if has_double else 1 }}"
-      clicks: 1
-
-  # Count extra presses of the same button within the window
-  - if:
-      - condition: template
-        value_template: "{{ max_clicks > 1 }}"
-    then:
-      - repeat:
-          sequence:
-            - wait_for_trigger:
-                - trigger: event
-                  event_type: zha_event
-                  event_data:
-                    device_id: !input remote
-              timeout:
-                milliseconds: "{{ window }}"
-              continue_on_timeout: true
-            - if:
-                - condition: template
-                  value_template: >
-                    {{ wait.trigger is not none
-                       and wait.trigger.event.data.endpoint_id | int(0) == my_ep
-                       and (allowed | length == 0
-                            or wait.trigger.event.data.command in allowed) }}
-              then:
-                - variables:
-                    clicks: "{{ clicks + 1 }}"
-          until:
-            - condition: template
-              value_template: "{{ wait.trigger is none or clicks >= max_clicks }}"
+      cmd: "{{ trigger.event.data.command }}"
+      params: "{{ trigger.event.data.params | default({}) }}"
+      press_id: "{{ params.param1 | default(0) | int(0) }}"
+      move_mode: "{{ params.move_mode | default(-1) | int(-1) }}"
+      btn: >
+        {% if cmd == 'on' or (cmd == 'press' and press_id == 256) or (cmd == 'move' and move_mode == 0) %}1
+        {% elif cmd == 'off' or (cmd == 'press' and press_id == 257) or (cmd == 'move' and move_mode == 1) %}2
+        {% else %}0{% endif %}
+      lights: "{{ b1_lights if btn | int == 1 else b2_lights }}"
+      brightness: "{{ (b1_brightness if btn | int == 1 else b2_brightness) | int }}"
+      kelvin: "{{ (b1_kelvin if btn | int == 1 else b2_kelvin) | int }}"
+      transition: "{{ (b1_transition if btn | int == 1 else b2_transition) | float }}"
 
   - choose:
+      # Single press: toggle with custom settings
       - conditions:
           - condition: template
-            value_template: "{{ btn == 1 and clicks >= 3 }}"
-        sequence: !input b1_triple
+            value_template: "{{ cmd in ['on', 'off'] }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: >
+                  {{ expand(lights) | selectattr('state', 'eq', 'on') | list | count > 0 }}
+            then:
+              - action: light.turn_off
+                target:
+                  entity_id: "{{ lights }}"
+                data:
+                  transition: "{{ transition }}"
+            else:
+              - action: light.turn_on
+                target:
+                  entity_id: "{{ lights }}"
+                data: >
+                  {% set d = {'brightness_pct': brightness, 'transition': transition} %}
+                  {% if kelvin > 0 %}{% set d = dict(d, color_temp_kelvin=kelvin) %}{% endif %}
+                  {{ d }}
+
+      # Double press
       - conditions:
           - condition: template
-            value_template: "{{ btn == 1 and clicks == 2 }}"
+            value_template: "{{ cmd == 'press' and btn | int == 1 }}"
         sequence: !input b1_double
       - conditions:
           - condition: template
-            value_template: "{{ btn == 2 and clicks >= 3 }}"
-        sequence: !input b2_triple
+            value_template: "{{ cmd == 'press' and btn | int == 2 }}"
+        sequence: !input b2_double
+
+      # Long press (runs once, then waits for release so repeats are ignored)
       - conditions:
           - condition: template
-            value_template: "{{ btn == 2 and clicks == 2 }}"
-        sequence: !input b2_double
-    default:
-      # Single press: toggle with custom settings
-      - if:
+            value_template: "{{ cmd == 'move' and btn | int == 1 }}"
+        sequence:
+          - sequence: !input b1_long
+          - wait_for_trigger:
+              - trigger: event
+                event_type: zha_event
+                event_data:
+                  device_id: !input remote
+                  command: move_up_release
+            timeout: "00:00:15"
+      - conditions:
           - condition: template
-            value_template: >
-              {{ expand(lights) | selectattr('state', 'eq', 'on') | list | count > 0 }}
-        then:
-          - action: light.turn_off
-            target:
-              entity_id: "{{ lights }}"
-            data:
-              transition: "{{ transition }}"
-        else:
-          - action: light.turn_on
-            target:
-              entity_id: "{{ lights }}"
-            data: >
-              {% set d = {'brightness_pct': brightness | int, 'transition': transition | float} %}
-              {% if kelvin > 0 %}{% set d = dict(d, color_temp_kelvin=kelvin) %}{% endif %}
-              {{ d }}
+            value_template: "{{ cmd == 'move' and btn | int == 2 }}"
+        sequence:
+          - sequence: !input b2_long
+          - wait_for_trigger:
+              - trigger: event
+                event_type: zha_event
+                event_data:
+                  device_id: !input remote
+                  command: move_down_release
+            timeout: "00:00:15"
